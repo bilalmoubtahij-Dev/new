@@ -12,6 +12,7 @@ import Reservation from './pages/Reservation';
 import AdminDashboard from './pages/AdminDashboard';
 import { LanguageProvider } from './context/LanguageContext';
 import LanguageSelector from './components/LanguageSelector';
+import { Analytics } from '@vercel/analytics/react';
 
 const ScrollToTop = () => {
   const { pathname } = useLocation();
@@ -42,6 +43,7 @@ const App = () => {
             </Routes>
           </main>
           <Footer />
+          <Analytics />
         </div>
       </Router>
     </LanguageProvider>
