@@ -276,24 +276,18 @@ const EnglishTest = () => {
     
     setIsCheckingEmail(true);
     try {
-      let query = supabase.from('test_results')
-        .select('is_school_student')
-        .not('is_school_student', 'is', null)
-        .order('created_at', { ascending: true })
-        .limit(1);
-
-      if (isEmailValid && isPhoneValid) {
-         query = query.or(`email.eq.${userInfo.email},phone.eq.${userInfo.phone}`);
-      } else if (isEmailValid) {
-         query = query.eq('email', userInfo.email);
-      } else if (isPhoneValid) {
-         query = query.eq('phone', userInfo.phone);
+      // Securely query via the PostgreSQL RPC function
+      const { data: dbStatus, error } = await supabase.rpc('check_student_status', {
+        p_email: isEmailValid ? userInfo.email : null,
+        p_phone: isPhoneValid ? userInfo.phone : null
+      });
+        
+      if (error) {
+        console.error('RPC check_student_status error:', error);
+        throw error;
       }
 
-      const { data: previousTests } = await query;
-        
-      if (previousTests && previousTests.length > 0) {
-        const dbStatus = previousTests[0].is_school_student;
+      if (dbStatus !== null) {
         setUserInfo(prev => ({ ...prev, isSchoolStudent: dbStatus }));
         setIsStudentStatusLocked(true);
         if (isEmailValid) localStorage.setItem(`highway_student_status_${userInfo.email}`, String(dbStatus));
@@ -312,7 +306,7 @@ const EnglishTest = () => {
         }
       }
     } catch (err) {
-      console.warn("Could not check existing status");
+      console.warn("Could not check existing status", err);
     }
     setIsCheckingEmail(false);
   };
@@ -376,24 +370,16 @@ const EnglishTest = () => {
       const isEmailValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(sanitizedUser.email);
       const isPhoneValid = /^\+212(0?[567])[0-9]{8}$/.test(sanitizedUser.phone);
       
-      let query = supabase.from('test_results')
-        .select('is_school_student')
-        .not('is_school_student', 'is', null)
-        .order('created_at', { ascending: true })
-        .limit(1);
-
-      if (isEmailValid && isPhoneValid) {
-         query = query.or(`email.eq.${sanitizedUser.email},phone.eq.${sanitizedUser.phone}`);
-      } else if (isEmailValid) {
-         query = query.eq('email', sanitizedUser.email);
-      } else if (isPhoneValid) {
-         query = query.eq('phone', sanitizedUser.phone);
-      }
-
-      const { data: previousTests } = await query;
-      
-      if (previousTests && previousTests.length > 0) {
-         finalStudentStatus = previousTests[0].is_school_student;
+      try {
+        const { data: dbStatus } = await supabase.rpc('check_student_status', {
+          p_email: isEmailValid ? sanitizedUser.email : null,
+          p_phone: isPhoneValid ? sanitizedUser.phone : null
+        });
+        if (dbStatus !== null) {
+          finalStudentStatus = dbStatus;
+        }
+      } catch (e) {
+        console.warn("Failed to check db status in registration, falling back to local state", e);
       }
 
       const { data, error } = await supabase.from('test_results').insert([
@@ -430,39 +416,9 @@ const EnglishTest = () => {
       phone: sanitizeInput(userInfo.phone)
     };
 
-    let certificateUrl = '';
+    let targetResultId = testResultIdRef.current || testResultId;
 
-    // Step 1: Generate PDF blob from certificate and upload to Supabase Storage
-    if (certificateRef.current) {
-      try {
-        const canvas = await html2canvas(certificateRef.current, { scale: 2, useCORS: true });
-        const imgData = canvas.toDataURL('image/png');
-        const pdfWidth = 210;
-        const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
-        const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: [pdfWidth, pdfHeight] });
-        pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
-        const pdfBlob = pdf.output('blob');
-
-        const fileName = `${sanitizedUser.fullName.replace(/\\s+/g, '_')}_${Date.now()}.pdf`;
-        const { data, error } = await supabase.storage
-            .from('certificates')
-            .upload(fileName, pdfBlob, {
-                contentType: 'application/pdf',
-                upsert: false
-            });
-
-        if (data) {
-            const { data: publicUrlData } = supabase.storage.from('certificates').getPublicUrl(fileName);
-            certificateUrl = publicUrlData.publicUrl;
-        } else if (error) {
-            console.error('Supabase storage upload error:', error);
-        }
-      } catch (err) {
-        console.warn('Certificate upload failed:', err);
-      }
-    }
-
-    // Step 2: Save to Supabase
+    // Step 1: Save result details to Supabase immediately (takes < 200ms)
     try {
       const updatePayload = {
         score: finalScore,
@@ -471,13 +427,11 @@ const EnglishTest = () => {
         reading_score: finalSkillScores['Reading'] ?? 0,
         listening_score: finalSkillScores['Listening'] ?? 0,
         writing_score: finalSkillScores['Writing'] ?? 0,
-        status: 'Completed',
-        certificate_url: certificateUrl
+        status: 'Completed'
       };
 
-      const idToUpdate = testResultIdRef.current || testResultId;
-      if (idToUpdate) {
-        await supabase.from('test_results').update(updatePayload).eq('id', idToUpdate);
+      if (targetResultId) {
+        await supabase.from('test_results').update(updatePayload).eq('id', targetResultId);
       } else {
         const { data: existingData } = await supabase.from('test_results')
             .select('id')
@@ -488,19 +442,74 @@ const EnglishTest = () => {
             .limit(1);
 
         if (existingData && existingData.length > 0) {
-            await supabase.from('test_results').update(updatePayload).eq('id', existingData[0].id);
+            targetResultId = existingData[0].id;
+            testResultIdRef.current = targetResultId;
+            setTestResultId(targetResultId);
+            await supabase.from('test_results').update(updatePayload).eq('id', targetResultId);
         } else {
-            await supabase.from('test_results').insert([{
+            const { data: insertedData } = await supabase.from('test_results').insert([{
               name: sanitizedUser.fullName,
               email: sanitizedUser.email,
               phone: sanitizedUser.phone,
               is_school_student: userInfo.isSchoolStudent,
               ...updatePayload
-            }]);
+            }]).select('id').single();
+            if (insertedData) {
+              targetResultId = insertedData.id;
+              testResultIdRef.current = targetResultId;
+              setTestResultId(targetResultId);
+            }
         }
       }
     } catch (err) {
-      console.warn('Result DB update failed:', err);
+      console.warn('Immediate result DB update failed:', err);
+    }
+
+    // Step 2: Generate PDF blob from certificate and upload to Supabase Storage in the background
+    if (certificateRef.current) {
+      try {
+        const canvas = await html2canvas(certificateRef.current, { scale: 2, useCORS: true });
+        const imgData = canvas.toDataURL('image/png');
+        const pdfWidth = 210;
+        const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
+        const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: [pdfWidth, pdfHeight] });
+        pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
+        const pdfBlob = pdf.output('blob');
+
+        const fileName = `${sanitizedUser.fullName.replace(/\s+/g, '_')}_${Date.now()}.pdf`;
+        const { data, error } = await supabase.storage
+            .from('certificates')
+            .upload(fileName, pdfBlob, {
+                contentType: 'application/pdf',
+                upsert: false
+            });
+
+        if (data) {
+            const { data: publicUrlData } = supabase.storage.from('certificates').getPublicUrl(fileName);
+            const certificateUrl = publicUrlData.publicUrl;
+
+            // Step 3: Update database with certificate URL
+            if (targetResultId) {
+              await supabase.from('test_results').update({ certificate_url: certificateUrl }).eq('id', targetResultId);
+            } else {
+              const { data: existingData } = await supabase.from('test_results')
+                  .select('id')
+                  .eq('email', sanitizedUser.email)
+                  .eq('phone', sanitizedUser.phone)
+                  .eq('status', 'Completed')
+                  .order('created_at', { ascending: false })
+                  .limit(1);
+
+              if (existingData && existingData.length > 0) {
+                  await supabase.from('test_results').update({ certificate_url: certificateUrl }).eq('id', existingData[0].id);
+              }
+            }
+        } else if (error) {
+            console.error('Supabase storage upload error:', error);
+        }
+      } catch (err) {
+        console.warn('Certificate upload and link update failed:', err);
+      }
     }
   };
 
