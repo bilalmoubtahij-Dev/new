@@ -619,6 +619,17 @@ const EnglishTest = () => {
     }
 
     const playNativeFallback = () => {
+        // Safe iOS detection (iPhone, iPad, iPod, and newer iPads reporting as MacIntel)
+        const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || 
+                      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+        
+        if (isIOS) {
+            console.warn("Audio fallback bypassed on iOS to prevent Safari freeze");
+            setIsPlaying(false);
+            alert("Audio could not load. Please check your internet connection and ensure your physical silent switch is turned off, then try again.");
+            return;
+        }
+
         window.speechSynthesis.cancel(); // Clear any pending speech
         const utterance = new SpeechSynthesisUtterance(text);
         utterance.lang = 'en-US';
