@@ -23,7 +23,7 @@ const AdminDashboard = () => {
     const [selectedIds, setSelectedIds] = useState<string[]>([]);
     const [statusFilter, setStatusFilter] = useState<string>('All');
     const [dealStatusFilter, setDealStatusFilter] = useState<string>('All');
-    const [userCategoryFilter, setUserCategoryFilter] = useState<string>('External Users');
+    const [userCategoryFilter, setUserCategoryFilter] = useState<string>('All Users');
     const [showUserHistory, setShowUserHistory] = useState(false);
 
     const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
@@ -294,10 +294,18 @@ const AdminDashboard = () => {
     const filteredReservations = statusFilter === 'All' ? reservations : reservations.filter(r => r.status === statusFilter);
     const filteredContacts = statusFilter === 'All' ? contacts : contacts.filter(c => c.status === statusFilter);
     
-    // Deduplicate testResults to get uniqueTestResults (most recent per email+phone)
+    // Deduplicate testResults to get uniqueTestResults (prioritizing Completed, then latest created_at)
     const uniqueTestResults = Object.values(testResults.reduce((acc, t) => {
-        const key = `${t.email}-${t.phone}`;
-        if (!acc[key]) acc[key] = t;
+        const key = `${(t.email || '').trim().toLowerCase()}-${(t.phone || '').trim()}`;
+        const existing = acc[key];
+        if (!existing) {
+            acc[key] = t;
+        } else {
+            // Prioritize Completed status over Started status
+            if (existing.status !== 'Completed' && t.status === 'Completed') {
+                acc[key] = t;
+            }
+        }
         return acc;
     }, {} as Record<string, any>));
 
@@ -474,7 +482,7 @@ const AdminDashboard = () => {
                         <button onClick={() => { setActiveTab('contacts'); setSelectedIds([]); setStatusFilter('All'); }} className={`px-4 py-2 font-medium rounded-t-lg transition-colors whitespace-nowrap ${activeTab === 'contacts' ? 'text-orange-500 border-b-2 border-orange-500 bg-orange-500/10' : 'text-gray-400 hover:text-gray-200'}`}>
                             Messages ({contacts.length})
                         </button>
-                        <button onClick={() => { setActiveTab('test_results'); setSelectedIds([]); setStatusFilter('All'); setDealStatusFilter('All'); setUserCategoryFilter('External Users'); }} className={`px-4 py-2 font-medium rounded-t-lg transition-colors whitespace-nowrap ${activeTab === 'test_results' ? 'text-orange-500 border-b-2 border-orange-500 bg-orange-500/10' : 'text-gray-400 hover:text-gray-200'}`}>
+                        <button onClick={() => { setActiveTab('test_results'); setSelectedIds([]); setStatusFilter('All'); setDealStatusFilter('All'); setUserCategoryFilter('All Users'); }} className={`px-4 py-2 font-medium rounded-t-lg transition-colors whitespace-nowrap ${activeTab === 'test_results' ? 'text-orange-500 border-b-2 border-orange-500 bg-orange-500/10' : 'text-gray-400 hover:text-gray-200'}`}>
                             Test Results ({uniqueTestResults.length})
                         </button>
                     </div>

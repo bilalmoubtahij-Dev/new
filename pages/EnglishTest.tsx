@@ -447,17 +447,23 @@ const EnglishTest = () => {
             setTestResultId(targetResultId);
             await supabase.from('test_results').update(updatePayload).eq('id', targetResultId);
         } else {
-            const { data: insertedData } = await supabase.from('test_results').insert([{
+            // First insert as 'Started' so we can select the ID under the RLS SELECT policy
+            const { data: insertedData, error: insertError } = await supabase.from('test_results').insert([{
               name: sanitizedUser.fullName,
               email: sanitizedUser.email,
               phone: sanitizedUser.phone,
               is_school_student: userInfo.isSchoolStudent,
-              ...updatePayload
+              status: 'Started'
             }]).select('id').single();
+
             if (insertedData) {
               targetResultId = insertedData.id;
               testResultIdRef.current = targetResultId;
               setTestResultId(targetResultId);
+              // Now update it to 'Completed' with all scores
+              await supabase.from('test_results').update(updatePayload).eq('id', targetResultId);
+            } else {
+              console.error('Fallback test result insert failed:', insertError);
             }
         }
       }
