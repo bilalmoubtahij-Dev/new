@@ -431,9 +431,10 @@ const EnglishTest = () => {
       };
 
       if (targetResultId) {
-        await supabase.from('test_results').update(updatePayload).eq('id', targetResultId);
+        const { error: updateError } = await supabase.from('test_results').update(updatePayload).eq('id', targetResultId);
+        if (updateError) throw new Error(`Update error: ${updateError.message}`);
       } else {
-        const { data: existingData } = await supabase.from('test_results')
+        const { data: existingData, error: selectError } = await supabase.from('test_results')
             .select('id')
             .eq('email', sanitizedUser.email)
             .eq('phone', sanitizedUser.phone)
@@ -441,11 +442,14 @@ const EnglishTest = () => {
             .order('created_at', { ascending: false })
             .limit(1);
 
+        if (selectError) throw new Error(`Select error: ${selectError.message}`);
+
         if (existingData && existingData.length > 0) {
             targetResultId = existingData[0].id;
             testResultIdRef.current = targetResultId;
             setTestResultId(targetResultId);
-            await supabase.from('test_results').update(updatePayload).eq('id', targetResultId);
+            const { error: updateError } = await supabase.from('test_results').update(updatePayload).eq('id', targetResultId);
+            if (updateError) throw new Error(`Update existing error: ${updateError.message}`);
         } else {
             // First insert as 'Started' so we can select the ID under the RLS SELECT policy
             const { data: insertedData, error: insertError } = await supabase.from('test_results').insert([{
@@ -456,19 +460,20 @@ const EnglishTest = () => {
               status: 'Started'
             }]).select('id').single();
 
+            if (insertError) throw new Error(`Insert error: ${insertError.message}`);
+
             if (insertedData) {
               targetResultId = insertedData.id;
               testResultIdRef.current = targetResultId;
               setTestResultId(targetResultId);
               // Now update it to 'Completed' with all scores
-              await supabase.from('test_results').update(updatePayload).eq('id', targetResultId);
-            } else {
-              console.error('Fallback test result insert failed:', insertError);
+              const { error: updateError } = await supabase.from('test_results').update(updatePayload).eq('id', targetResultId);
+              if (updateError) throw new Error(`Update fallback error: ${updateError.message}`);
             }
         }
       }
-    } catch (err) {
-      console.warn('Immediate result DB update failed:', err);
+    } catch (err: any) {
+      console.error('Immediate result DB update failed:', err.message || err);
     }
 
     // Step 2: Generate PDF blob from certificate and upload to Supabase Storage in the background
@@ -496,9 +501,10 @@ const EnglishTest = () => {
 
             // Step 3: Update database with certificate URL
             if (targetResultId) {
-              await supabase.from('test_results').update({ certificate_url: certificateUrl }).eq('id', targetResultId);
+              const { error: updateError } = await supabase.from('test_results').update({ certificate_url: certificateUrl }).eq('id', targetResultId);
+              if (updateError) console.error('Failed to update certificate URL:', updateError.message);
             } else {
-              const { data: existingData } = await supabase.from('test_results')
+              const { data: existingData, error: selectError } = await supabase.from('test_results')
                   .select('id')
                   .eq('email', sanitizedUser.email)
                   .eq('phone', sanitizedUser.phone)
@@ -506,8 +512,11 @@ const EnglishTest = () => {
                   .order('created_at', { ascending: false })
                   .limit(1);
 
-              if (existingData && existingData.length > 0) {
-                  await supabase.from('test_results').update({ certificate_url: certificateUrl }).eq('id', existingData[0].id);
+              if (selectError) {
+                console.error('Failed to select completed test for certificate URL:', selectError.message);
+              } else if (existingData && existingData.length > 0) {
+                  const { error: updateError } = await supabase.from('test_results').update({ certificate_url: certificateUrl }).eq('id', existingData[0].id);
+                  if (updateError) console.error('Failed to update certificate URL for fallback:', updateError.message);
               }
             }
         } else if (error) {
@@ -537,6 +546,7 @@ const EnglishTest = () => {
     if (userInfo.phone && userInfo.isSchoolStudent !== null) {
       localStorage.setItem(`highway_student_status_${userInfo.phone}`, String(userInfo.isSchoolStudent));
     }
+    setResultEmailSent(false); // Reset so that subsequent tests will save results!
     sendTestRegistration(); // fire-and-forget, non-blocking
     setTestDate(new Date());
     setTestPhase('section_intro');

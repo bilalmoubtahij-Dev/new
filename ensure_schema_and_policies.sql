@@ -47,3 +47,15 @@ USING (true);
 -- Explicit Grants for PostgREST Data API access
 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.test_results TO anon;
 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.test_results TO authenticated;
+
+-- Allow anonymous and authenticated users to upload (INSERT) certificates to the "certificates" bucket
+DROP POLICY IF EXISTS "Allow anon and auth uploads to certificates" ON storage.objects;
+CREATE POLICY "Allow anon and auth uploads to certificates" 
+ON storage.objects FOR INSERT TO anon, authenticated 
+WITH CHECK (bucket_id = 'certificates');
+
+-- Allow public access to view/download (SELECT) certificates from the "certificates" bucket
+DROP POLICY IF EXISTS "Allow public select certificates" ON storage.objects;
+CREATE POLICY "Allow public select certificates" 
+ON storage.objects FOR SELECT TO public 
+USING (bucket_id = 'certificates');
