@@ -17,6 +17,7 @@ DROP POLICY IF EXISTS "Allow reading results" ON public.test_results;
 DROP POLICY IF EXISTS "Allow updating results" ON public.test_results;
 DROP POLICY IF EXISTS "Allow anon to select started tests" ON public.test_results;
 DROP POLICY IF EXISTS "Allow anon to update own test" ON public.test_results;
+DROP POLICY IF EXISTS "Allow anon update own test" ON public.test_results;
 DROP POLICY IF EXISTS "Allow authenticated full access test_results" ON public.test_results;
 DROP POLICY IF EXISTS "Allow anon insert test_results" ON public.test_results;
 DROP POLICY IF EXISTS "Allow anon select started tests" ON public.test_results;
