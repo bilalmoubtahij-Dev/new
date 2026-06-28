@@ -29,11 +29,10 @@ CREATE POLICY "Allow anon insert test_results"
 ON public.test_results FOR INSERT TO anon, authenticated
 WITH CHECK (true);
 
--- 2. Allow anonymous users to SELECT rows only if they have status = 'Started'
--- This allows them to retrieve the ID after insertion without exposing completed results of other users.
+-- 2. Allow anonymous users to SELECT rows
 CREATE POLICY "Allow anon select started tests" 
 ON public.test_results FOR SELECT TO anon 
-USING (status = 'Started');
+USING (true);
 
 -- 3. Allow anonymous users to UPDATE their own rows
 CREATE POLICY "Allow anon update own test" 
